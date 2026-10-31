@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roulette History Analyzer</title>
+<style>
+:root{--felt:#0f3d2e;--felt2:#16553f;--ivory:#faf6ec;--ink:#1b1b1b;--muted:#555;--brass:#b8892b;--red:#b3261e;--black:#222;--green:#1f7a4d;--line:#d9d2bf;--bad:#9b1c1c;--ok:#14532d;--warn:#7a4b00}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(ellipse at top left,#247653 0%,#0f3d2e 46%,#071e18 100%);color:var(--ink);min-height:100vh}
+header{padding:18px 16px 8px;color:#fff;max-width:1100px;margin:auto}
+header h1{margin:0;font:700 1.6rem Georgia,serif;letter-spacing:.3px}
+header p{margin:4px 0 0;color:#cfe3d8;font-size:.9rem}
+main{max-width:1100px;margin:auto;padding:8px 12px 40px;display:grid;gap:14px;grid-template-columns:1fr}
+@media(min-width:860px){main{grid-template-columns:1fr 1fr}.wide{grid-column:1/-1}}
+section{background:linear-gradient(145deg,#fffdf7,#f1ead9);border-radius:18px;padding:18px;border:1px solid rgba(220,185,95,.75);box-shadow:0 12px 32px rgba(0,0,0,.14)}
+h2{margin:0 0 8px;font:700 1.15rem Georgia,serif}
+h3{margin:12px 0 4px;font-size:1rem}
+label{display:block;font-weight:600;margin-bottom:4px}
+textarea,input[type=text],select{width:100%;padding:11px 12px;border:1px solid #b9b19e;border-radius:11px;font:inherit;background:#fff;color:var(--ink)}
+textarea{min-height:90px;resize:vertical}
+button,.btn{font:inherit;font-weight:650;padding:11px 17px;border-radius:11px;border:1px solid #24694b;background:linear-gradient(135deg,#207a51,#10452f);color:#fff;cursor:pointer;min-height:46px;box-shadow:0 4px 12px #0d382526}
+button.alt,.btn.alt{background:#fff;color:var(--felt)}
+button.danger{background:#fff;color:var(--bad);border-color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}
+:focus-visible{outline:3px solid #0a58ca;outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.hint{color:var(--muted);font-size:.88rem;margin:4px 0}
+.msg{margin-top:8px;font-weight:600;min-height:1.3em}
+.msg.err{color:var(--bad)}.msg.ok{color:var(--ok)}.msg.warn{color:var(--warn)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px}
+.stat b{display:block;font-size:1.4rem}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 3px;font-size:.9rem}
+.ball{display:inline-grid;place-items:center;min-width:34px;height:34px;border-radius:50%;color:#fff;font-weight:700}
+.ball.red{background:var(--red)}.ball.black{background:var(--black)}.ball.green{background:var(--green)}
+.cand{display:grid;grid-template-columns:auto 1fr;gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
+.cand p{margin:2px 0;font-size:.88rem}
+.scroll{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:#eee9d8}
+details{margin-top:10px}summary{cursor:pointer;font-weight:600}
+code{background:#eee9d8;padding:1px 4px;border-radius:4px}
+.notice{background:#fff7e0;border:1px solid var(--brass);border-radius:8px;padding:8px 10px;font-size:.88rem}
+[hidden]{display:none!important}
+.vh{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Roulette History Analyzer</h1>
+  <p>Frequency and pattern-mapping tool. Fair roulette spins are independent; nothing here predicts or improves outcomes.</p>
+</header>
+<main id="app">
+
+<!-- Recovery (corrupt saved state) -->
+<section class="wide" id="rv-recovery" hidden aria-live="polite">
+  <h2>Saved data could not be read</h2>
+  <p id="rv-recovery-msg" class="msg err"></p>
+  <p class="hint">Your stored data has <b>not</b> been overwritten. Download the raw data, import a backup, or reset.</p>
+  <div class="row">
+    <button id="rv-raw-export" class="alt">Download raw stored data</button>
+    <label class="btn alt" for="rv-import-rec" style="margin:0">Import backup JSON</label>
+    <input id="rv-import-rec" type="file" accept="application/json,.json" class="vh">
+    <button id="rv-reset-rec" class="danger">Reset and start clean</button>
+  </div>
+</section>
+
+<!-- Setup -->
+<section class="wide" id="rv-setup" hidden>
+  <h2>1 · Initial history</h2>
+  <label for="rv-initial">Enter exactly 37 past results, <b>oldest first → newest last</b></label>
+  <textarea id="rv-initial" aria-describedby="rv-initial-hint rv-setup-msg" placeholder="e.g. 17, 0, 32, 5, …"></textarea>
+  <p class="hint" id="rv-initial-hint">Whole numbers 0–36, separated by commas or whitespace. The last number you type is treated as the most recent spin. <span id="rv-count"></span></p>
+  <div class="row">
+    <button id="rv-random-37" class="alt" type="button">Generate Random 37 Numbers (0–36)</button>
+    <button id="rv-copy-37" class="alt" type="button">Copy 37 Numbers</button>
+  </div>
+  <p class="hint">Random set contains every roulette pocket 0–36 exactly once, shuffled into a new order. This is a demo/test sequence, not real spin results.</p>
+  <div class="row">
+    <button id="rv-create">Create session</button>
+    <label class="btn alt" for="rv-import-setup" style="margin:0">Import session JSON</label>
+    <input id="rv-import-setup" type="file" accept="application/json,.json" class="vh">
+  </div>
+  <p id="rv-setup-msg" class="msg" role="status"></p>
+</section>
+
+<!-- Dashboard -->
+<section class="wide" id="rv-dash-stats" hidden>
+  <h2>Session overview</h2>
+  <div class="stats">
+    <div class="stat">Total records<b id="rv-total">0</b></div>
+    <div class="stat">Newest result<b id="rv-newest">–</b></div>
+    <div class="stat">Analytics window<b id="rv-window">0</b><span class="hint">newest 37</span></div>
+    <div class="stat">Session ID<b id="rv-sid" style="font-size:.8rem;word-break:break-all"></b></div><div class="stat">Created<b id="rv-created" style="font-size:.85rem"></b></div>
+  </div>
+  <div class="row">
+    <button id="rv-export" class="alt">Export JSON</button>
+    <label class="btn alt" for="rv-import-dash" style="margin:0">Import JSON</label>
+    <input id="rv-import-dash" type="file" accept="application/json,.json" class="vh">
+    <button id="rv-undo" class="alt">Undo last save</button>
+    <button id="rv-reset" class="danger">Reset session</button>
+  </div>
+  <p id="rv-global-msg" class="msg" role="status" aria-live="polite"></p>
+</section>
+
+<section id="rv-input" hidden>
+  <h2>2 · Current result</h2>
+  <label for="rv-current">Latest spin result (0–36)</label>
+  <input id="rv-current" type="text" inputmode="numeric" autocomplete="off" aria-describedby="rv-current-msg">
+  <label for="rv-pred-mode">Prediction mode</label>
+  <select id="rv-pred-mode"><option value="pattern">Main Number</option><option value="neighbor">Neighbor</option></select>
+  <p class="hint" id="rv-mode-hint">Main Number: original mapping and ranking logic. Neighbor: checks the mapped target numbers, expands to their immediate wheel neighbors, then ranks those neighbors using Hot/Cold and recent-history data.</p>
+  <div class="row"><button id="rv-save">Save Result</button><button id="rv-predict" disabled>Predict Your Next 5 Numbers</button></div>
+  <p class="hint" id="rv-predict-hint">Prediction unlocks after a successful Save, then can be used as many times as you like.</p>
+  <p id="rv-current-msg" class="msg" role="status"></p>
+</section>
+
+<section id="rv-pred" hidden>
+  <h2>3 · Candidate ranking</h2>
+  <div id="rv-pred-out"><p class="hint">No ranking requested for the current state.</p></div>
+</section>
+
+<section id="rv-hc" hidden>
+  <h2>Hot / Cold (latest-37 window)</h2>
+  <h3>Hot 5 (highest frequency)</h3><div class="chips" id="rv-hot"></div>
+  <h3>Cold 5 (lowest frequency)</h3><div class="chips" id="rv-cold"></div>
+  <p class="notice">Ties are broken by <b>frequency first, then number ascending</b>. With 37 observations over 37 pockets, ties are common, so Hot/Cold are only relative rankings of past counts — not evidence about future spins.</p>
+  <details><summary>All frequencies (0–36)</summary><div class="scroll"><table><thead><tr><th>Number</th><th>Count</th></tr></thead><tbody id="rv-freq"></tbody></table></div></details>
+</section>
+
+<section id="rv-hist" hidden>
+  <h2>Record history <span class="hint">(newest first; index 0 = newest)</span></h2>
+  <div class="scroll"><table><thead><tr><th>#</th><th>Number</th><th>Source</th><th>Time</th></tr></thead><tbody id="rv-records"></tbody></table></div>
+  <p class="hint">Rows 0–36 form the analytics window. Older rows are kept permanently.</p>
+</section>
+
+<section id="rv-log" hidden>
+  <h2>Prediction log</h2>
+  <div class="scroll"><table><thead><tr><th>Time</th><th>Based on</th><th>Records</th><th>Map v</th><th>Snapshot / candidates</th></tr></thead><tbody id="rv-log-body"></tbody></table></div>
+</section>
+
+<section class="wide" id="rv-about">
+  <details open><summary>Notes: ordering, persistence, algorithm, limitations</summary>
+    <ul>
+      <li><b>Ordering.</b> Initial input is oldest→newest. Internally <code>records[]</code> is newest-first; each Save inserts at index 0. Nothing is ever discarded. Analytics always use <code>records.slice(0, 37)</code>.</li>
+      <li><b>Persistence.</b> Saved in this browser's <code>localStorage</code> (key <code>rv_session_v1</code>) after every accepted change; a failed write is reported and the change is rolled back. Export/Import use JSON. Private/blocked-storage modes may prevent saving. Clearing site data erases the session, so export backups.</li>
+      <li><b>Candidate scoring (deterministic).</b> Sources = the 3 newest records, weights 3/2/1 (newest first). Candidates = union of configured mappings for those sources (sources 0 and 19–36 have no mapping and are skipped). Score = 42% pattern (source-weight sum ÷ max) + 36% hot/cold (75% membership in Hot5/Cold5 + 25% relative frequency) + 22% history (65% relative frequency + 35% occurrences in newest 10). Ties: score desc, then number asc. These weights come from the supplied file.</li>
+      <li><b>Unlimited use.</b> After one successful Save, the Predict button stays enabled and can be pressed any number of times; each press is logged. A new Save is needed only to change the data.</li>
+      <li><b>Fallback.</b> If fewer than 5 mapped candidates exist, deterministic fallback candidates are filled from remaining 0–36 using hot/cold membership, relative frequency, newest-10 frequency, then number ascending. They are visibly labeled.</li>
+      <li><b>Wheel neighbours.</b> Not used in scoring, because the owner has not defined the rule. Standard European wheel order is stored as <code>WHEEL_ORDER</code> for a future rule.</li>
+      <li><b>Limitations.</b> Scores are heuristic rankings, not probabilities or winning chances. Hot/cold, mappings and neighbours confer no edge on independent spins. Do not use this to chase losses or as a betting system.</li>
+    </ul>
+  </details>
+  <details><summary>Pattern mapping (source → candidates) · version <span id="rv-mapver"></span></summary>
+    <p class="notice"><b>Owner verification needed.</b> Copied unchanged from the supplied file, which marks rows 11–18 as provisional transcriptions. Rows 16 and 17 are identical in the source — possibly a transcription slip.</p>
+    <div class="scroll"><table><thead><tr><th>Source</th><th>Candidates</th></tr></thead><tbody id="rv-map"></tbody></table></div>
+  </details>
+</section>
+</main>
+
+<script>
+"use strict";
+/* ================= Core (pure logic; no DOM) ================= */
+var Core = (function () {
+  var STORAGE_KEY = "rv_session_v1";
+  var SCHEMA_VERSION = 1;
+  var WINDOW = 37;
+  var MAPPING_VERSION = 1;
+  // Standard European single-zero wheel order (clockwise). Reserved for a future, owner-defined neighbour rule.
+  var WHEEL_ORDER = [0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+  var REDS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+  // Copied UNCHANGED from the supplied file. Rows 11-18 are provisional per the source comment; 16 == 17 in source.
+  var DEFAULT_MAPPINGS = {
+    1:[21,2,3,20,17,33,31,32,22],2:[22,23,20,32,15,12,26],3:[33,13,30,27,9,6,12,23,15,31],
+    4:[21,7,24,14,34,29,27,35],5:[35,15,10,13,19,25],6:[27,36,17,16,9,12,7],7:[14,21,29,27,28,15],
+    8:[28,18,9,16,32,4,13,15],9:[15,18,19,29,20,10,30],10:[19,13,20,30,29,9,8],
+    11:[21,1,19,22,31,13,33],12:[21,24,26,32,15,22,23],13:[31,33,30,21,9,23],
+    14:[28,24,21,7,4,34,29,27],15:[32,12,18,30,17,19],16:[17,8,36,27,26,6,7,4],
+    17:[17,8,36,27,26,6,7,4],18:[15,9,28,36,8]
+  };
+  var WEIGHTS = [42, 36, 22];
+  var SOURCE_WEIGHTS = [3, 2, 1]; // newest, 2nd newest, 3rd newest
+
+  function isValidNumber(n) { return typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 36; }
+  function colorOf(n) { return n === 0 ? "green" : REDS.indexOf(n) >= 0 ? "red" : "black"; }
+  function uid(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+  // Strict token parser. Returns {ok, values|error}.
+  function parseList(text, expected) {
+    var t = String(text == null ? "" : text).trim();
+    if (!t) return { ok: false, error: "Input is empty." };
+    var tokens = t.split(/\s*,\s*|\s+/);
+    var out = [];
+    for (var i = 0; i < tokens.length; i++) {
+      var tk = tokens[i];
+      if (tk === "") return { ok: false, error: "Empty value found (check for doubled or trailing commas)." };
+      if (!/^(0|[1-9][0-9]*)$/.test(tk)) return { ok: false, error: "\"" + tk.slice(0, 20) + "\" is not a whole number from 0 to 36." };
+      var n = Number(tk);
+      if (!isValidNumber(n)) return { ok: false, error: tk + " is outside 0–36." };
+      out.push(n);
+    }
+    if (expected && out.length !== expected) return { ok: false, error: "Expected exactly " + expected + " numbers, found " + out.length + "." };
+    return { ok: true, values: out };
+  }
+  function parseSingle(text) {
+    var t = String(text == null ? "" : text).trim();
+    if (!t) return { ok: false, error: "Enter a number from 0 to 36." };
+    if (!/^(0|[1-9][0-9]*)$/.test(t)) return { ok: false, error: "Enter exactly one whole number from 0 to 36 (no decimals, signs, text or multiple values)." };
+    var n = Number(t);
+    if (!isValidNumber(n)) return { ok: false, error: n + " is outside 0–36." };
+    return { ok: true, value: n };
+  }
+
+  function createSession(initialOldestFirst, now) {
+    var ts = (now || new Date()).toISOString();
+    var recs = [];
+    // records are newest-first: reverse the oldest-first input
+    for (var i = initialOldestFirst.length - 1; i >= 0; i--) {
+      recs.push({ id: uid("r"), number: initialOldestFirst[i], timestamp: ts, source: "initial" });
+    }
+    return {
+      version: SCHEMA_VERSION, sessionId: uid("s"), createdAt: ts,
+      initialHistory: initialOldestFirst.slice(),
+      records: recs, mappingVersion: MAPPING_VERSION,
+      mappings: JSON.parse(JSON.stringify(DEFAULT_MAPPINGS)),
+      predictionLog: [], undoLog: [], predictReadyFor: null
+    };
+  }
+
+  function windowOf(state) { return state.records.slice(0, WINDOW); }
+  function frequencies(state) {
+    var f = []; for (var i = 0; i < 37; i++) f.push(0);
+    windowOf(state).forEach(function (r) { f[r.number]++; });
+    return f;
+  }
+  function hotCold(state) {
+    var f = frequencies(state), nums = [];
+    for (var i = 0; i < 37; i++) nums.push(i);
+    var hot = nums.slice().sort(function (a, b) { return f[b] - f[a] || a - b; }).slice(0, 5);
+    var cold = nums.slice().sort(function (a, b) { return f[a] - f[b] || a - b; }).slice(0, 5);
+    return { freq: f, hot: hot, cold: cold };
+  }
+
+  // Returns a NEW state with the result at the front (does not mutate input).
+  function applySave(state, number, now) {
+    var s = JSON.parse(JSON.stringify(state));
+    var rec = { id: uid("r"), number: number, timestamp: (now || new Date()).toISOString(), source: "saved" };
+    s.undoLog.push({ recordId: rec.id, prevPredictReadyFor: s.predictReadyFor });
+    s.records.unshift(rec);
+    s.predictReadyFor = rec.id;
+    return s;
+  }
+  function canUndo(state) {
+    var u = state.undoLog[state.undoLog.length - 1];
+    return !!u && state.records.length > 0 && state.records[0].id === u.recordId;
+  }
+  function applyUndo(state) {
+    if (!canUndo(state)) return null;
+    var s = JSON.parse(JSON.stringify(state));
+    var u = s.undoLog.pop();
+    s.records.shift();
+    // Historical predictions are immutable audit records; undo does not erase them.
+    s.predictReadyFor = u.prevPredictReadyFor;
+    return s;
+  }
+
+  function rankCandidates(state, mode) {
+    var hc = hotCold(state), f = hc.freq;
+    var maxFreq = Math.max(1, Math.max.apply(null, f));
+    var sources = state.records.slice(0, 3).map(function (r) { return r.number; });
+    var skipped = [], raw = {};
+    sources.forEach(function (src, i) {
+      var m = state.mappings[src];
+      if (!m) { skipped.push(src); return; }
+      m.forEach(function (n) {
+        if (!raw[n]) raw[n] = { raw: 0, from: [] };
+        raw[n].raw += SOURCE_WEIGHTS[i];
+        raw[n].from.push(src);
+      });
+    });
+    if (mode === "neighbor") {
+      var wheelIndex = {};
+      WHEEL_ORDER.forEach(function (n, i) { wheelIndex[n] = i; });
+      var expanded = {};
+      Object.keys(raw).forEach(function (key) {
+        var n = Number(key), idx = wheelIndex[n];
+        [WHEEL_ORDER[(idx + WHEEL_ORDER.length - 1) % WHEEL_ORDER.length],
+         WHEEL_ORDER[(idx + 1) % WHEEL_ORDER.length]].forEach(function (neighbor) {
+          if (!expanded[neighbor]) expanded[neighbor] = { raw: 0, from: [] };
+          expanded[neighbor].raw += raw[n].raw;
+          raw[n].from.forEach(function (src) { if (expanded[neighbor].from.indexOf(src) < 0) expanded[neighbor].from.push(src); });
+        });
+      });
+      raw = expanded;
+    }
+    var keys = Object.keys(raw).map(Number);
+    var maxRaw = Math.max(1, Math.max.apply(null, keys.map(function (k) { return raw[k].raw; }).concat([0])));
+    var recent10 = state.records.slice(0, 10);
+    function scoreOne(n, isFallback) {
+      var isHot = hc.hot.indexOf(n) >= 0, isCold = hc.cold.indexOf(n) >= 0;
+      var t1 = raw[n] ? raw[n].raw / maxRaw * 100 : 0;
+      var rc = recent10.filter(function (r) { return r.number === n; }).length;
+      // Keep Main Number scoring exactly as before. Neighbor mode separately
+      // evaluates each adjacent pocket against current hot/cold and recent data.
+      var t2 = mode === "neighbor"
+        ? (isHot ? 70 : 0) + (isCold ? 20 : 0) + 0.10 * f[n] / maxFreq * 100
+        : 0.75 * ((isHot || isCold) ? 100 : 0) + 0.25 * f[n] / maxFreq * 100;
+      var t3 = 0.65 * f[n] / maxFreq * 100 + 0.35 * rc / 10 * 100;
+      var tiers = [t1, t2, t3];
+      var score = tiers[0] * WEIGHTS[0] / 100 + tiers[1] * WEIGHTS[1] / 100 + tiers[2] * WEIGHTS[2] / 100;
+      return { number: n, score: score, tiers: tiers, fromSources: raw[n] ? raw[n].from.slice() : [], hot: isHot, cold: isCold, freq: f[n], recent10: rc, fallback: !!isFallback };
+    }
+    var list = keys.map(function(n){ return scoreOne(n, false); })
+      .sort(function (a, b) { return b.score - a.score || a.number - b.number; });
+    // Deterministic fill: mapped candidates first, then remaining 0–36 ranked by the same history components.
+    if (list.length < 5) {
+      var seen = new Set(list.map(function(c){return c.number;}));
+      var fill = [];
+      for (var n = 0; n <= 36; n++) if (!seen.has(n)) fill.push(scoreOne(n, true));
+      fill.sort(function(a,b){ return (b.tiers[1]*.36+b.tiers[2]*.22)-(a.tiers[1]*.36+a.tiers[2]*.22) || b.freq-a.freq || a.number-b.number; });
+      list = list.concat(fill.slice(0, 5-list.length));
+    }
+    list = list.slice(0,5);
+    list.forEach(function (c, i) { c.rank = i + 1; });
+    return { sources: sources, skippedSources: skipped, candidates: list, shortage: list.length < 5, hot: hc.hot, cold: hc.cold, mode: mode === 'neighbor' ? 'neighbor' : 'pattern' };
+  }
+
+  function snapshotHash(s) {
+    var str = JSON.stringify({records:windowOf(s).map(function(r){return [r.id,r.number,r.timestamp];}), mappingVersion:s.mappingVersion, mappings:s.mappings});
+    var h = 2166136261;
+    for (var i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h,16777619); }
+    return ("00000000"+(h>>>0).toString(16)).slice(-8);
+  }
+  function applyPredict(state, now, mode) {
+    if (!state.records.length || state.predictReadyFor !== state.records[0].id) return null;
+    var s = JSON.parse(JSON.stringify(state));
+    var r = rankCandidates(s, mode);
+    var entry = {
+      id: uid("p"), createdAt: (now || new Date()).toISOString(),
+      basedOnRecordId: s.records[0].id, recordCount: s.records.length,
+      windowSnapshot: windowOf(s).map(function (x) { return x.number; }),
+      mappingVersion: s.mappingVersion, sources: r.sources, skippedSources: r.skippedSources, mode: r.mode,
+      hot: r.hot, cold: r.cold, shortage: r.shortage, candidates: r.candidates
+    };
+    s.predictionLog.unshift(entry); // predictReadyFor stays set: unlimited predictions per saved result
+    return { state: s, entry: entry };
+  }
+
+  // Full schema validation. Returns array of problems (empty = valid).
+  function validateState(s) {
+    var e = [];
+    function bad(m) { e.push(m); return e; }
+    if (!s || typeof s !== "object" || Array.isArray(s)) return bad("Not an object.");
+    if (s.version !== SCHEMA_VERSION) return bad("Unsupported version.");
+    if (typeof s.sessionId !== "string" || !s.sessionId) return bad("Missing sessionId.");
+    if (typeof s.createdAt !== "string" || isNaN(Date.parse(s.createdAt))) return bad("Bad createdAt.");
+    if (!Array.isArray(s.initialHistory) || s.initialHistory.length !== WINDOW || !s.initialHistory.every(isValidNumber)) return bad("initialHistory must be exactly 37 integers 0–36.");
+    if (!Array.isArray(s.records) || s.records.length < WINDOW) return bad("records must contain at least 37 items.");
+    var ids = {};
+    for (var i = 0; i < s.records.length; i++) {
+      var r = s.records[i];
+      if (!r || typeof r.id !== "string" || !isValidNumber(r.number) || typeof r.timestamp !== "string" || isNaN(Date.parse(r.timestamp)) || (r.source !== "initial" && r.source !== "saved")) return bad("Invalid record at index " + i + ".");
+      if (ids[r.id]) return bad("Duplicate record id."); ids[r.id] = 1;
+    }
+    var tail = s.records.slice(-WINDOW).map(function (r) { return r.number; }).reverse();
+    if (tail.some(function (n, i) { return n !== s.initialHistory[i]; })) return bad("records do not match initialHistory (oldest 37).");
+    if (s.records.slice(-WINDOW).some(function (r) { return r.source !== "initial"; }) || s.records.slice(0, -WINDOW).some(function (r) { return r.source !== "saved"; })) return bad("Record sources inconsistent.");
+    if (!Number.isInteger(s.mappingVersion) || s.mappingVersion < 1) return bad("Bad mappingVersion.");
+    if (!s.mappings || typeof s.mappings !== "object" || Array.isArray(s.mappings)) return bad("Bad mappings.");
+    var mk = Object.keys(s.mappings);
+    for (var k = 0; k < mk.length; k++) {
+      var src = Number(mk[k]), v = s.mappings[mk[k]];
+      if (!Number.isInteger(src) || src < 1 || src > 18) return bad("Mapping source " + mk[k] + " invalid.");
+      if (!Array.isArray(v) || !v.length || !v.every(isValidNumber) || new Set(v).size !== v.length) return bad("Mapping targets for " + mk[k] + " invalid or duplicated.");
+    }
+    for (var q = 1; q <= 18; q++) if (!s.mappings[q]) return bad("Mapping for source " + q + " missing.");
+    if (!Array.isArray(s.predictionLog)) return bad("Bad predictionLog.");
+    for (var p = 0; p < s.predictionLog.length; p++) {
+      var pl = s.predictionLog[p];
+      if (!pl || typeof pl.id !== "string" || typeof pl.createdAt !== "string" || !ids[pl.basedOnRecordId] || !Array.isArray(pl.windowSnapshot) || pl.windowSnapshot.length !== WINDOW || !pl.windowSnapshot.every(isValidNumber) || !Array.isArray(pl.candidates) || pl.candidates.length > 5 || !pl.candidates.every(function (c) { return c && isValidNumber(c.number) && Number.isFinite(c.score) && Number.isInteger(c.rank) && Array.isArray(c.tiers); }) || new Set(pl.candidates.map(function (c) { return c.number; })).size !== pl.candidates.length) return bad("Invalid prediction log entry " + p + ".");
+    }
+    if (!Array.isArray(s.undoLog) || !s.undoLog.every(function (u) { return u && typeof u.recordId === "string" && (u.prevPredictReadyFor === null || typeof u.prevPredictReadyFor === "string"); })) return bad("Bad undoLog.");
+    if (s.predictReadyFor !== null && !(typeof s.predictReadyFor === "string" && s.records[0].id === s.predictReadyFor)) return bad("Bad predictReadyFor.");
+    return e;
+  }
+
+  return { STORAGE_KEY: STORAGE_KEY, WINDOW: WINDOW, WHEEL_ORDER: WHEEL_ORDER, DEFAULT_MAPPINGS: DEFAULT_MAPPINGS,
+    parseList: parseList, parseSingle: parseSingle, createSession: createSession, windowOf: windowOf,
+    hotCold: hotCold, applySave: applySave, applyUndo: applyUndo, canUndo: canUndo, rankCandidates: rankCandidates,
+    applyPredict: applyPredict, validateState: validateState, colorOf: colorOf, isValidNumber: isValidNumber };
+})();
+
+/* ================= UI / persistence (browser only) ================= */
+if (typeof document !== "undefined") (function () {
+  var state = null;
+  var $ = function (id) { return document.getElementById(id); };
+  var lastPrediction = null;
+
+  function el(tag, props, children) {
+    var n = document.createElement(tag);
+    if (props) Object.keys(props).forEach(function (k) { if (k === "text") n.textContent = props[k]; else if (k === "class") n.className = props[k]; else n.setAttribute(k, props[k]); });
+    (children || []).forEach(function (c) { n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return n;
+  }
+  function ball(n) { return el("span", { "class": "ball " + Core.colorOf(n), text: String(n) }); }
+  function say(id, text, kind) { var n = $(id); n.textContent = text || ""; n.className = "msg" + (kind ? " " + kind : ""); }
+  function fmt(iso) { try { return new Date(iso).toLocaleString(); } catch (e) { return iso; } }
+
+  // ---- storage ----
+  function persist(s) {
+    try { localStorage.setItem(Core.STORAGE_KEY, JSON.stringify(s)); return true; }
+    catch (e) { return false; }
+  }
+  // Apply a pure state transition; commit to memory only if persistence succeeds.
+  function commit(next, failMsgId) {
+    if (!persist(next)) {
+      say(failMsgId || "rv-global-msg", "Could not save to browser storage (blocked or full). Change NOT applied. Export your data and check storage settings.", "err");
+      return false;
+    }
+    state = next; return true;
+  }
+  function loadStored() {
+    var raw = null;
+    try { raw = localStorage.getItem(Core.STORAGE_KEY); }
+    catch (e) { return { status: "unavailable" }; }
+    if (raw === null) return { status: "empty" };
+    var obj;
+    try { obj = JSON.parse(raw); } catch (e) { return { status: "corrupt", raw: raw, why: "Stored text is not valid JSON." }; }
+    var errs = Core.validateState(obj);
+    if (errs.length) return { status: "corrupt", raw: raw, why: errs[0] };
+    return { status: "ok", state: obj };
+  }
+
+  // ---- views ----
+  function show(ids, on) { ids.forEach(function (i) { $(i).hidden = !on; }); }
+  var DASH = ["rv-dash-stats", "rv-input", "rv-pred", "rv-hc", "rv-hist", "rv-log"];
+
+  function renderMapping() {
+    var tb = $("rv-map"); tb.textContent = "";
+    var m = state ? state.mappings : Core.DEFAULT_MAPPINGS;
+    $("rv-mapver").textContent = state ? String(state.mappingVersion) : "1";
+    Object.keys(m).sort(function (a, b) { return a - b; }).forEach(function (k) {
+      tb.appendChild(el("tr", null, [el("td", { text: k }), el("td", { text: m[k].join(", ") })]));
+    });
+  }
+  function chipList(box, nums, freq) {
+    box.textContent = "";
+    nums.forEach(function (n) { box.appendChild(el("span", { "class": "chip" }, [ball(n), "×" + freq[n]])); });
+  }
+  function renderPrediction(entry) {
+    var out = $("rv-pred-out"); out.textContent = "";
+    if (!entry) { out.appendChild(el("p", { "class": "hint", text: "No ranking requested for the current state." })); return; }
+    out.appendChild(el("p", { "class": "hint", text: (entry.mode === "neighbor" ? "WHEEL NEIGHBOR MODE · immediate adjacent pockets. " : "NORMAL PATTERN MODE · ") + "Heuristic ranking (0–100), not probabilities. Based on " + entry.recordCount + " records, mapping v" + entry.mappingVersion + ", sources (newest first): " + entry.sources.join(", ") + "." }));
+    if (entry.skippedSources.length) out.appendChild(el("p", { "class": "notice", text: "Sources with no mapping were skipped: " + entry.skippedSources.join(", ") + "." }));
+    if (entry.candidates.some(function(c){return c.fallback;})) out.appendChild(el("p", { "class": "notice", text: "Deterministic fallback used for candidates without mapping support. Fallback ranking is descriptive, not predictive." }));
+    entry.candidates.forEach(function (c) {
+      var tags = []; if (c.hot) tags.push("Hot"); if (c.cold) tags.push("Cold");
+      out.appendChild(el("div", { "class": "cand" }, [ball(c.number), el("div", null, [
+        el("b", { text: "Rank " + c.rank + " · score " + c.score.toFixed(1) + " / 100" }),
+        el("p", { text: "Mapped from source(s): " + c.fromSources.join(", ") + (tags.length ? " · " + tags.join("/") : "") }),
+        el("p", { text: "Pattern " + c.tiers[0].toFixed(1) + " × 42% + Hot/Cold " + c.tiers[1].toFixed(1) + " × 36% + History " + c.tiers[2].toFixed(1) + " × 22%" }),
+        el("p", { text: "Window count " + c.freq + " · appearances in newest 10: " + c.recent10 + (c.fallback ? " · FALLBACK (no mapping support)" : "") })
+      ])]));
+    });
+    if (!entry.candidates.length) out.appendChild(el("p", { text: "No candidates: none of the newest three results has a configured mapping." }));
+  }
+  function render() {
+    if (!state) { show(DASH, false); show(["rv-setup"], true); renderMapping(); return; }
+    show(["rv-setup", "rv-recovery"], false); show(DASH, true);
+    $("rv-total").textContent = state.records.length;
+    $("rv-newest").textContent = state.records[0].number;
+    $("rv-window").textContent = Core.windowOf(state).length;
+    $("rv-sid").textContent = state.sessionId; $("rv-created").textContent = fmt(state.createdAt);
+    var hc = Core.hotCold(state);
+    chipList($("rv-hot"), hc.hot, hc.freq); chipList($("rv-cold"), hc.cold, hc.freq);
+    var fb = $("rv-freq"); fb.textContent = "";
+    hc.freq.forEach(function (c, n) { fb.appendChild(el("tr", null, [el("td", { text: String(n) }), el("td", { text: String(c) })])); });
+    var rb = $("rv-records"); rb.textContent = "";
+    state.records.forEach(function (r, i) {
+      rb.appendChild(el("tr", null, [el("td", { text: String(i) }), el("td", { text: String(r.number) }), el("td", { text: r.source }), el("td", { text: fmt(r.timestamp) })]));
+    });
+    var lb = $("rv-log-body"); lb.textContent = "";
+    if (!state.predictionLog.length) lb.appendChild(el("tr", null, [el("td", { colspan: "5", text: "No predictions yet." })]));
+    state.predictionLog.forEach(function (p) {
+      lb.appendChild(el("tr", null, [el("td", { text: fmt(p.createdAt) }), el("td", { text: "hash " + (p.snapshotHash || "legacy") + " · src " + p.sources.join(",") }), el("td", { text: String(p.recordCount) }), el("td", { text: String(p.mappingVersion) }), el("td", { text: p.candidates.map(function (c) { return c.number; }).join(", ") || "none" })]));
+    });
+    var ready = state.predictReadyFor === state.records[0].id;
+    $("rv-predict").disabled = !ready;
+    $("rv-predict-hint").textContent = ready ? "Saved. You can now request a ranking." : "Prediction unlocks after a successful Save, then can be used as many times as you like.";
+    $("rv-undo").disabled = !Core.canUndo(state);
+    renderPrediction(lastPrediction && state.predictionLog.some(function (p) { return p.id === lastPrediction.id; }) ? lastPrediction : null);
+    renderMapping();
+  }
+
+  // ---- handlers ----
+  function onCount() {
+    var r = Core.parseList($("rv-initial").value, 0);
+    $("rv-count").textContent = r.ok ? "(" + r.values.length + " of 37 entered)" : "";
+  }
+  function generateRandom37() {
+    var nums = Array.from({length: 37}, function (_, i) { return i; });
+    // Fisher–Yates shuffle for a random permutation of the 37 pockets.
+    for (var i = nums.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = nums[i]; nums[i] = nums[j]; nums[j] = tmp;
+    }
+    $("rv-initial").value = nums.join(", ");
+    onCount();
+    say("rv-setup-msg", "Generated a shuffled set of all 37 numbers (0–36). This is for testing/demo only.", "ok");
+  }
+  function copyInitial37() {
+    var txt = $("rv-initial").value.trim();
+    var parsed = Core.parseList(txt, 37);
+    if (!parsed.ok) {
+      say("rv-setup-msg", "Generate or enter exactly 37 valid numbers first, then copy.", "err");
+      return;
+    }
+    function fallbackCopy() {
+      var area = $("rv-initial"); area.focus(); area.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      if (ok) say("rv-setup-msg", "Copied 37 numbers to clipboard.", "ok");
+      else say("rv-setup-msg", "Numbers selected. Use your device's Copy option.", "warn");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(parsed.values.join(", ")).then(function () {
+        say("rv-setup-msg", "Copied 37 numbers to clipboard.", "ok");
+      }).catch(fallbackCopy);
+    } else fallbackCopy();
+  }
+  function onCreate() {
+    var r = Core.parseList($("rv-initial").value, 37);
+    if (!r.ok) { say("rv-setup-msg", r.error, "err"); return; }
+    if (state) return; // exactly once
+    var s = Core.createSession(r.values);
+    if (!persist(s)) { say("rv-setup-msg", "Could not save to browser storage. Session NOT created. You may still export after fixing storage settings.", "err"); return; }
+    state = s; lastPrediction = null; say("rv-setup-msg", ""); $("rv-initial").value = ""; render();
+    say("rv-global-msg", "Session created with 37 results (input read oldest → newest).", "ok");
+  }
+  function onSave() {
+    var r = Core.parseSingle($("rv-current").value);
+    if (!r.ok) { say("rv-current-msg", r.error, "err"); $("rv-current").focus(); return; }
+    var next = Core.applySave(state, r.value);
+    if (!commit(next, "rv-current-msg")) return;
+    lastPrediction = null; $("rv-current").value = "";
+    render(); say("rv-current-msg", "Saved " + r.value + " as newest. Records: " + state.records.length + ".", "ok");
+    $("rv-predict").focus();
+  }
+  function onPredict() {
+    var res = Core.applyPredict(state, undefined, $("rv-pred-mode").value);
+    if (!res) { say("rv-current-msg", "Save a current result first.", "err"); return; }
+    if (!commit(res.state, "rv-current-msg")) return;
+    lastPrediction = res.entry; render(); say("rv-current-msg", "Ranking generated from the state at this moment.", "ok");
+  }
+  function onUndo() {
+    var next = Core.applyUndo(state);
+    if (!next) { say("rv-global-msg", "Nothing to undo.", "warn"); return; }
+    if (!window.confirm("Undo the last saved result (and any prediction made from it)?")) return;
+    if (commit(next)) { lastPrediction = null; render(); say("rv-global-msg", "Last save undone.", "ok"); }
+  }
+  function onReset() {
+    if (!window.confirm("Reset the session? All records and predictions in this browser will be deleted. Export first if you need a backup.")) return;
+    try { localStorage.removeItem(Core.STORAGE_KEY); } catch (e) { say("rv-global-msg", "Could not clear browser storage.", "err"); return; }
+    state = null; lastPrediction = null; render(); say("rv-setup-msg", "Session reset. Enter a new initial history.", "ok");
+  }
+  function download(name, text) {
+    var url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    var a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 500);
+  }
+  function onExport() {
+    download("roulette_session_" + state.sessionId + ".json", JSON.stringify(state, null, 2));
+    say("rv-global-msg", "Export started (check your Downloads folder).", "ok");
+  }
+  function importFile(file, msgId, afterOk) {
+    if (!file) return;
+    var fr = new FileReader();
+    fr.onerror = function () { say(msgId, "Could not read the file.", "err"); };
+    fr.onload = function () {
+      var obj;
+      try { obj = JSON.parse(String(fr.result)); } catch (e) { say(msgId, "Import rejected: not valid JSON. Current data unchanged.", "err"); return; }
+      var errs = Core.validateState(obj);
+      if (errs.length) { say(msgId, "Import rejected: " + errs[0] + " Current data unchanged.", "err"); return; }
+      if ((state || afterOk === "overwrite") && !window.confirm("Importing will overwrite the current session. Continue?")) return;
+      if (!persist(obj)) { say(msgId, "Import validated but could not be saved to browser storage. Current data unchanged.", "err"); return; }
+      state = obj; lastPrediction = null; render(); say("rv-global-msg", "Session imported (" + obj.records.length + " records).", "ok");
+    };
+    fr.readAsText(file);
+  }
+  function wireImport(inputId, msgId, mode) {
+    $(inputId).addEventListener("change", function (ev) { importFile(ev.target.files[0], msgId, mode); ev.target.value = ""; });
+  }
+  function onRawExport() {
+    var raw = ""; try { raw = localStorage.getItem(Core.STORAGE_KEY) || ""; } catch (e) {}
+    download("roulette_raw_stored_data.json", raw);
+  }
+
+  function init() {
+    $("rv-create").addEventListener("click", onCreate);
+    $("rv-random-37").addEventListener("click", generateRandom37);
+    $("rv-copy-37").addEventListener("click", copyInitial37);
+    $("rv-initial").addEventListener("input", onCount);
+    $("rv-save").addEventListener("click", onSave);
+    $("rv-current").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); onSave(); } });
+    $("rv-predict").addEventListener("click", onPredict);
+    $("rv-undo").addEventListener("click", onUndo);
+    $("rv-reset").addEventListener("click", onReset);
+    $("rv-export").addEventListener("click", onExport);
+    $("rv-raw-export").addEventListener("click", onRawExport);
+    $("rv-reset-rec").addEventListener("click", function () {
+      if (!window.confirm("Delete the unreadable stored data and start clean?")) return;
+      try { localStorage.removeItem(Core.STORAGE_KEY); } catch (e) {}
+      show(["rv-recovery"], false); state = null; render();
+    });
+    wireImport("rv-import-setup", "rv-setup-msg"); wireImport("rv-import-dash", "rv-global-msg");
+    wireImport("rv-import-rec", "rv-recovery-msg", "overwrite");
+    var st = loadStored();
+    if (st.status === "ok") { state = st.state; render(); }
+    else {
+      render(); // setup view
+      if (st.status === "corrupt") { show(["rv-recovery"], true); show(["rv-setup"], false); say("rv-recovery-msg", "Stored session is corrupt: " + st.why, "err"); }
+      else if (st.status === "unavailable") say("rv-setup-msg", "Browser storage is unavailable here; sessions cannot persist across reloads. Use Export to keep data.", "warn");
+    }
+  }
+  init();
+})();
+
+if (typeof module !== "undefined") module.exports = Core;
+</script>
+</body>
+</html>
